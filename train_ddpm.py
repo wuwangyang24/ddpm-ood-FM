@@ -121,6 +121,10 @@ def parse_args():
         type=int,
         help="If True, runs through a single batch of the train and eval loop.",
     )
+    parser.add_argument("--sigma_min", type=float, default=0.0001)
+    parser.add_argument("--is_rectifiedflow", type=bool, default=False)
+    parser.add_argument("--data_parallel", type=int, default=0)
+    
     args = parser.parse_args()
     return args
 
