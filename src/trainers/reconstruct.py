@@ -75,7 +75,6 @@ class Reconstruct(BaseTrainer):
         self,
         z: torch.Tensor,
         y: torch.Tensor,
-        start_t:float,
         step_size: float=0.01,
         **kwargs,
     ) -> torch.Tensor:
@@ -95,7 +94,7 @@ class Reconstruct(BaseTrainer):
             func,
             z,
             # 0.0,
-            torch.tensor([start_t, 1.0], device=z.device, dtype=z.dtype),
+            torch.tensor([0.0, 1.0], device=z.device, dtype=z.dtype),
             # phi=self.parameters(),
             **ode_kwargs,
         )[-1]
@@ -135,68 +134,29 @@ class Reconstruct(BaseTrainer):
                     beta_start=self.beta_start,
                     beta_end=self.beta_end,
                 )
-                # if self.snr_shift != 1:
-                #     snr = pndm_scheduler.alphas_cumprod / (1 - pndm_scheduler.alphas_cumprod)
-                #     target_snr = snr * self.snr_shift
-                #     new_alphas_cumprod = 1 / (torch.pow(target_snr, -1) + 1)
-                #     new_alphas = torch.zeros_like(new_alphas_cumprod)
-                #     new_alphas[0] = new_alphas_cumprod[0]
-                #     for i in range(1, len(new_alphas)):
-                #         new_alphas[i] = new_alphas_cumprod[i] / new_alphas_cumprod[i - 1]
-                #     new_betas = 1 - new_alphas
-                #     pndm_scheduler.betas = new_betas
-                #     pndm_scheduler.alphas = new_alphas
-                #     pndm_scheduler.alphas_cumprod = new_alphas_cumprod
                 pndm_scheduler.set_timesteps(100)
                 pndm_timesteps = pndm_scheduler.timesteps
                 pndm_start_points = reversed(pndm_timesteps)[1::inference_skip_factor]
                 
                 t1 = time.time()
-                images_original = batch["image"].to(self.device)
-                images = self.vqvae_model.encode_stage_2_inputs(images_original)
-                if self.do_latent_pad:
-                    images = F.pad(input=images, pad=self.latent_pad, mode="constant", value=0)
+                images = batch["image"].to(self.device)
                 # loop over different values to reconstruct from
                 for t_start in pndm_start_points:
                     with autocast(enabled=True):
-                        start_t = (1000-t_start)/1000
-                        start_timesteps = torch.Tensor([start_t] * images.shape[0])
+                        t = (1000-t_start)/1000
+                        start_timesteps = torch.Tensor([t] * images.shape[0])
 
                         # noise images
-                        if self.simplex_noise:
-                            noise = generate_simplex_noise(
-                                self.simplex,
-                                x=images,
-                                t=start_timesteps,
-                                in_channels=images.shape[1],
-                            )
-                        else:
-                            noise = torch.randn_like(images).to(self.device)
-
-                        # reconstructions = pndm_scheduler.add_noise(
-                        #     original_samples=images * self.b_scale,
-                        #     noise=noise,
-                        #     timesteps=start_timesteps,
-                        # )
+                        noise = torch.randn_like(images).to(self.device)
 
                         # perform reconstruction
-                        # step_size is negatively propotional to the starting time
                         start_timesteps = start_timesteps[:, None, None, None]
                         start_timesteps = start_timesteps.to(self.device)
                         reconstructions = start_timesteps * images + (1 - (1 - self.sigma_min) * start_timesteps) * noise
                         reconstructions = self.decode(z=reconstructions,
-                                                      y=None,
-                                                      start_t=start_t)
+                                                      y=None)
 
                     # try clamping the reconstructions
-                    if self.do_latent_pad:
-                        reconstructions = F.pad(
-                            input=reconstructions,
-                            pad=self.inverse_latent_pad,
-                            mode="constant",
-                            value=0,
-                        )
-                    reconstructions = self.vqvae_model.decode_stage_2_outputs(reconstructions)
                     reconstructions.clamp_(0, 1)
 
                     # compute similarity
