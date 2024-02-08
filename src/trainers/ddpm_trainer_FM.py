@@ -83,27 +83,16 @@ class DDPMTrainer_FM(BaseTrainer):
         epoch_step = 0
         self.model.train()
         for step, batch in progress_bar:
-            images = self.vqvae_model.encode_stage_2_inputs(batch["image"].to(0))
-            
-            if self.do_latent_pad:
-                with torch.no_grad():
-                    images = F.pad(input=images, pad=self.latent_pad, mode="constant", value=0)
+            images = batch["image"].to(0)
             self.optimizer.zero_grad(set_to_none=True)
-
             with autocast(enabled=True):
-                if self.is_rectifiedflow:
-                    noise = self.encode(x=images, y=y)
-                else:
-                    noise = torch.randn_like(images)
+                noise = torch.randn_like(images)
 
                 # noise images
-                t = torch.rand(len(images), device=images.device, dtype=images.dtype)
+                t = torch.round(torch.rand(len(images), device=images.device, dtype=images.dtype), decimals=3)
                 t_ = t[:, None, None, None]  # [B, 1, 1, 1]
                 noisy_image = t_ * images + (1 - (1 - self.sigma_min) * t_) * noise
                 u = images - (1 - self.sigma_min) * noise
-                
-                # noisy_image = noisy_image.to(0)
-                # t = t.to(0)
 
                 prediction = self.model(x=noisy_image, timesteps=t)
                 loss = (prediction-u).square().mean(dim=(1,2,3)).sum()
