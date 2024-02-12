@@ -1,0 +1,31 @@
+data:
+  image_size: 32
+  training_ids: 'data/data_splits/CIFAR10_train.csv'
+  validation_ids: 'data/data_splits/CIFAR10_val.csv'
+  spatial_dimension: 2
+  is_grayscale: 0
+
+model:
+  sigma_min: 0.0001
+  step_size: 0.01
+
+train:
+  batch_size: 128
+  n_epochs: 300
+  eval_freq: 10
+  checkpoint_every: 20
+  lr: 2.5e-4
+  path_type: 'linear' #'GVP','VP'
+  prediction: 'velocity' #'score','noise'
+  loss_weight: None #'velcity','likelihood'
+  train_eps:
+  sample_eps:
+
+wandb:
+  key: #TO DO
+  entity: #TO DO
+  project: #TO DO
+
+model_name: SPFM
+model_type: big
+output_dir: model
