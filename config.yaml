@@ -15,6 +15,7 @@ train:
   eval_freq: 10
   checkpoint_every: 20
   lr: 2.5e-4
+  
   path_type: 'linear' #'GVP','VP'
   prediction: 'velocity' #'score','noise'
   loss_weight: None #'velcity','likelihood'
