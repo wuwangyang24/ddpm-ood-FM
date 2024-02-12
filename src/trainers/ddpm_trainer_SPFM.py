@@ -11,7 +11,7 @@ from src.data.get_train_and_val_dataloader import get_training_data_loader
 from src.utils.simplex_noise import generate_simplex_noise
 from torchdiffeq import odeint_adjoint as odeint
 
-from .base_FM import BaseTrainer_FM
+from .base import BaseTrainer
 from src.utils.__init__ import create_transport
 
 
