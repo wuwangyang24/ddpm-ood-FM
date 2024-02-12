@@ -41,27 +41,6 @@ class BaseTrainer:
             print(f"  {k}: {v}")
 
         # set up model
-        if args.vqvae_checkpoint:
-            vqvae_checkpoint_path = Path(args.vqvae_checkpoint)
-            vqvae_config_path = vqvae_checkpoint_path.parent / "vqvae_config.json"
-            if not vqvae_checkpoint_path.exists():
-                raise FileNotFoundError(f"Cannot find VQ-VAE checkpoint {vqvae_checkpoint_path}")
-            if not vqvae_config_path.exists():
-                raise FileNotFoundError(f"Cannot find VQ-VAE config {vqvae_config_path}")
-            with open(vqvae_config_path, "r") as f:
-                self.vqvae_config = json.load(f)
-            self.vqvae_model = VQVAE(**self.vqvae_config)
-            vqvae_checkpoint = torch.load(vqvae_checkpoint_path)
-            self.vqvae_model.load_state_dict(vqvae_checkpoint["model_state_dict"])
-            self.vqvae_model.to(self.device)
-            self.vqvae_model.eval()
-            print("Loaded vqvae model with config:")
-            for k, v in self.vqvae_config.items():
-                print(f"  {k}: {v}")
-            ddpm_channels = self.vqvae_config["embedding_dim"]
-        else:
-            self.vqvae_model = PassthroughVQVAE()
-            ddpm_channels = 1 if args.is_grayscale else 3
         if args.model_type == "small":
             self.model = DiffusionModelUNet(
                 spatial_dims=args.spatial_dimension,
@@ -87,47 +66,10 @@ class BaseTrainer:
         else:
             raise ValueError(f"Do not recognise model type {args.model_type}")
         print(f"{sum(p.numel() for p in self.model.parameters()):,} model parameters")
-        # set up noise scheduler parameters
-        self.prediction_type = args.prediction_type
-        self.beta_schedule = args.beta_schedule
-        self.beta_start = args.beta_start
-        self.beta_end = args.beta_end
-        self.b_scale = args.b_scale
-        self.snr_shift = args.snr_shift
-        self.scheduler = DDPMScheduler(
-            num_train_timesteps=1000,
-            prediction_type=self.prediction_type,
-            # schedule=self.beta_schedule,
-            beta_start=self.beta_start,
-            beta_end=self.beta_end,
-        )
-        if self.snr_shift != 1:
-            print("Changing scheduler parameters to shift SNR")
-            snr = self.scheduler.alphas_cumprod / (1 - self.scheduler.alphas_cumprod)
-            target_snr = snr * self.snr_shift
-            new_alphas_cumprod = 1 / (torch.pow(target_snr, -1) + 1)
-            new_alphas = torch.zeros_like(new_alphas_cumprod)
-            new_alphas[0] = new_alphas_cumprod[0]
-            for i in range(1, len(new_alphas)):
-                new_alphas[i] = new_alphas_cumprod[i] / new_alphas_cumprod[i - 1]
-            new_betas = 1 - new_alphas
-            self.scheduler.betas = new_betas
-            self.scheduler.alphas = new_alphas
-            self.scheduler.alphas_cumprod = new_alphas_cumprod
 
-        self.simplex_noise = bool(args.simplex_noise)
-        if self.simplex_noise:
-            self.simplex = Simplex_CLASS()
-        self.inferer = DiffusionInferer(self.scheduler)
         self.scaler = GradScaler()
         self.spatial_dimension = args.spatial_dimension
         self.image_size = int(args.image_size) if args.image_size else args.image_size
-        if args.latent_pad:
-            self.do_latent_pad = True
-            self.latent_pad = args.latent_pad
-            self.inverse_latent_pad = [-x for x in self.latent_pad]
-        else:
-            self.do_latent_pad = False
 
         # set up optimizer, loss, checkpoints
         self.run_dir = Path(args.output_dir) / args.model_name
