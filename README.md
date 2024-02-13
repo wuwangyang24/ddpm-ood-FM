@@ -39,9 +39,7 @@ We'll use the example of FashionMNIST as an in-distribution dataset and [SVHN,CI
 ```bash
 python src/data/get_computer_vision_datasets.py --data_root=${data_root}
 ```
-N.B. If the error "The daily quota of the file img_align_celeba.zip is exceeded and it can't be downloaded" is thrown,
-you need to download these files manually from the GDrive and place them in `${data_root}/CelebA/raw/`,
-[see here](https://github.com/pytorch/vision/issues/1920#issuecomment-852237902). You can then run
+N.B. If the error shows up for CeleA, just ignore it because we will not use it anyway.
 
 ```bash
 python get_datasets.py --data_root=${data_root} --download_celeba=False
