@@ -1,22 +1,10 @@
 <h1 align="center">Flow Matching for out-of-distribution detection</h1>
-<p align="center">
-Perform reconstruction-based out-of-distribution detection with DDPMs.
-</p>
-
-<p align="center">
-  <img width="800" height="300" src="https://user-images.githubusercontent.com/7947315/233470531-df6437d7-e277-4147-96a0-6aa354cf2ef4.svg">
-</p>
 
 
 ## Intro
 
-This codebase contains the code to perform unsupervised out-of-distribution detection with diffusion models.
-It supports the use of DDPMs as well as Latent Diffusion Models (LDM) for dealing with higher dimensional 2D or 3D data.
-It is based on work published in [1] and [2].
+This codebase contains the code to perform unsupervised out-of-distribution detection with flow matching.
 
-[1] [Denoising diffusion models for out-of-distribution detection, CVPR VAND Workshop 2023](https://arxiv.org/abs/2211.07740)
-
-[2] [Unsupervised 3D out-of-distribution detection with latent diffusion models, MICCAI 2023](https://arxiv.org/abs/2307.03777)
 
 ## Setup
 
