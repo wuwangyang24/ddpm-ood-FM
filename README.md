@@ -1,4 +1,4 @@
-<h1 align="center">Denoising diffusion models for out-of-distribution detection</h1>
+<h1 align="center">Flow Matching for out-of-distribution detection</h1>
 <p align="center">
 Perform reconstruction-based out-of-distribution detection with DDPMs.
 </p>
