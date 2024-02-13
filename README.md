@@ -41,28 +41,19 @@ python src/data/get_computer_vision_datasets.py --data_root=${data_root}
 ```
 N.B. If the error shows up for CeleA, just ignore it because we will not use it anyway.
 
-```bash
-python get_datasets.py --data_root=${data_root} --download_celeba=False
-```
-
 To use your own data, you just need to provide separate csvs containing paths for the train/val/test splits.
 
 ### Train models
-Examples here use FashionMNIST as the in-distribution dataset. Commands for other datasets are given
-in [README_additional.md](README_additional.md).
+We use CIFAR10 as an example for training following the command below:
 
-```bash
-python train_ddpm.py \
---output_dir=${output_root} \
---model_name=fashionmnist \
---training_ids=${data_root}/data_splits/FashionMNIST_train.csv \
---validation_ids=${data_root}/data_splits/FashionMNIST_val.csv \
---is_grayscale=1 \
---n_epochs=300 \
---beta_schedule=scaled_linear \
---beta_start=0.0015 \
---beta_end=0.0195
+1. for flow matching with stochastic interpolation:
 ```
+python main_SPFM.py
+```
+2. for vinilla flow matching:
+```
+python main_FM.py
+```   
 
 You can track experiments in tensorboard
 ```bash
