@@ -25,11 +25,6 @@ Create a fresh virtualenv (this codebase was developed and tested with Python 3.
 
 ```pip install -r requirements.txt```
 
-You can also build the docker image
-```bash
-cd docker/
-bash create_docker_image.sh
-```
 
 ### Setup paths
 Select where you want your data and model outputs stored.
