@@ -16,3 +16,4 @@ scikit-image
 x-transformers==1.8.1
 numba
 medmnist
+torch-fidelity
