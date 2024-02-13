@@ -21,9 +21,10 @@ data_root=/root/for/downloaded/dataset
 output_root=/root/for/saved/models
 ```
 
-## Run with DDPM
-We'll use the example of FashionMNIST as an in-distribution dataset and [SVHN,CIFAR10, CelebA] as out-of-distribution datasets.
+## Run with FM
+
 ### Download and process datasets
+We use 3 datasets in this project: Fashionmnist, CIFAR10, SVHN. Use the following command to download datasets
 ```bash
 python src/data/get_computer_vision_datasets.py --data_root=${data_root}
 ```
