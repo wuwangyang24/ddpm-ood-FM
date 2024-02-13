@@ -12,14 +12,6 @@ This codebase contains the code to perform unsupervised out-of-distribution dete
 
 ```pip install -r requirements.txt```
 
-
-### Setup paths
-Select where you want your data and model outputs stored.
-```
-data_root=/root/for/downloaded/dataset
-output_root=/root/for/saved/models
-```
-
 ## Run with FM
 
 ### Download and process datasets
