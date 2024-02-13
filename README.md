@@ -9,7 +9,6 @@ This codebase contains the code to perform unsupervised out-of-distribution dete
 ## Setup
 
 ### Install
-Create a fresh virtualenv (this codebase was developed and tested with Python 3.8) and then install the required packages:
 
 ```pip install -r requirements.txt```
 
