@@ -24,7 +24,6 @@ N.B. If the error shows up for CeleA, just ignore it because we will not use it 
 To use your own data, you just need to provide separate csvs containing paths for the train/val/test splits.
 
 ### Train models
-We use CIFAR10 as an example for training following the command below:
 
 1. for flow matching with stochastic interpolation:
 ```
