@@ -106,7 +106,7 @@ class BaseTrainerFM:
             self.global_step = 0
             self.found_checkpoint = False
             
-        self.model = self.accelerator.prepare(self.model) #use accelarater for ddp
+        # self.model = self.accelerator.prepare(self.model) #use accelarater for ddp
         self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=args.train.lr)
         if checkpoint_path.exists():
             self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -116,7 +116,7 @@ class BaseTrainerFM:
         #     self.model = DistributedDataParallel(
         #         self.model, device_ids=[self.device], find_unused_parameters=True
         #     )
-        self.optimizer = self.accelerator.prepare(self.optimizer) #use accelarater for ddp
+        # self.optimizer = self.accelerator.prepare(self.optimizer) #use accelarater for ddp
 
     def save_checkpoint(self, path, epoch, save_message=None):
         # if self.ddp and dist.get_rank() == 0:
