@@ -107,7 +107,7 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
             self.optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=True):
                 model_fn = self.model.forward
-                model_kwargs = dict(y=None)
+                model_kwargs = dict()
                 _z = self.ode_x2z(images, model_fn, **model_kwargs)[-1]
                 _x_sde_sampled = self.sde_z2x(_z, model_fn, **model_kwargs)[-1]
                 loss = mean_flat(((_x_sde_sampled-images) ** 2))
@@ -148,7 +148,7 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
             self.optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=True):
                 model_fn = self.model.forward
-                model_kwargs = dict(y=None)
+                model_kwargs = dict()
                 _z = self.ode_x2z(images, model_fn, **model_kwargs)[-1]
                 _x_sde_sampled = self.sde_z2x(_z, model_fn, **model_kwargs)[-1]
                 loss = mean_flat(((_x_sde_sampled-images) ** 2))
