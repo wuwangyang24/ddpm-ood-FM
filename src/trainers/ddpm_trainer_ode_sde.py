@@ -33,6 +33,8 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
             spatial_dimension=args.data.spatial_dimension,
             image_size=self.image_size,
         )
+        # use accelerater for ddp
+        self.train_loader, self.val_loader = self.accelerator.prepare(self.train_loader), self.accelerator.prepare(self.val_loader)
         self.step_size = args.model.step_size
         self.checkpoint_every = args.train.checkpoint_every
         self.eval_freq = args.train.eval_freq
@@ -101,17 +103,19 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         for step, batch in progress_bar:
             images = batch['image'].to(self.device)
             self.optimizer.zero_grad(set_to_none=True)
-            with autocast(enabled=True):
+            # with autocast(enabled=True):
                 ## pure noise
-                model_kwargs = dict()
-                loss_dict = self.transport.training_losses(self.model, images, model_kwargs)
-                loss = loss_dict['loss'].mean()
-                self.run.log({"training_loss_step":loss.item()})
+            model_kwargs = dict()
+            loss_dict = self.transport.training_losses(self.model, images, model_kwargs)
+            loss = loss_dict['loss'].mean()
+            self.run.log({"training_loss_step": loss.item()})
                 
-            self.scaler.scale(loss).backward()
+            # self.scaler.scale(loss).backward()
+            self.accelerator.backward(loss)
             # torch.nn.utils.clip_grad_norm(self.model.parameters(), 1.0)
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
+            # self.scaler.step(self.optimizer)
+            self.optimizer.step()
+            # self.scaler.update()
             epoch_loss += loss.item()
             self.global_step += images.shape[0]
             epoch_step += images.shape[0]
@@ -137,8 +141,6 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         epoch_loss = 0
         global_val_step = self.global_step
         val_steps = 0
-        fid_score = 0
-        fid_steps = 0
         count_fid_sample = 0
         if_fid = False
         for step, batch in progress_bar:
@@ -155,7 +157,8 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
                 samples = torch.rand(len(images), 3, self.image_size, self.image_size).to(self.device)
                 _z = self.ode_x2z(samples, self.model, **model_kwargs)[-1]
                 samples = self.sde_z2x(_z, self.model, **model_kwargs)[-1]
-                if self.global_step > 100000 and count_fid_sample<=10000:
+                # 100000, 10000
+                if self.global_step > 1 and count_fid_sample<=1000:
                     if_fid = True
                     count_fid_sample += len(samples)
                     self.fid.update(out2img(images), real=True)
