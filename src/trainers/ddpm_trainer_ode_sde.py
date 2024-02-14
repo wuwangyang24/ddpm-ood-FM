@@ -34,7 +34,7 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
             image_size=self.image_size,
         )
         # use accelerater for ddp
-        self.train_loader, self.val_loader = self.accelerator.prepare(self.train_loader), self.accelerator.prepare(self.val_loader)
+        self.model, self.optimizer, self.train_loader, self.val_loader = self.accelerator.prepare(self.model, self.optimizer, self.train_loader, self.val_loader)
         self.step_size = args.model.step_size
         self.checkpoint_every = args.train.checkpoint_every
         self.eval_freq = args.train.eval_freq
