@@ -13,7 +13,6 @@ from torchdiffeq import odeint_adjoint as odeint
 from .base_FM import BaseTrainerFM
 from src.utils.__init__ import create_transport
 from src.utils.transport import Sampler
-from src.utils.utils import mean_flat
 from torchmetrics.image.fid import FrechetInceptionDistance
 
 def out2img(samples):
@@ -39,7 +38,7 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         self.eval_freq = args.train.eval_freq
         wandb.login(key=args.wandb.key)
         self.run = wandb.init(entity=args.wandb.entity, project=args.wandb.project)
-        wandb.watch(self.model, log='all', log_freq=10)
+        # wandb.watch(self.model, log='all', log_freq=10)
         
         # create transport type
         self.transport = create_transport(
@@ -48,10 +47,8 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
             loss_weight=args.train.loss_weight,
             train_eps=args.train.train_eps,
             sample_eps=args.train.sample_eps)
-        # create sampler
+        #create sampler
         self.transport_sampler = Sampler(self.transport)
-        # create z2x and x2z
-        self.ode_z2x = self.transport_sampler.sample_ode(num_steps=50, reverse=False)
         self.ode_x2z = self.transport_sampler.sample_ode(num_steps=50, reverse=True)
         self.sde_z2x = self.transport_sampler.sample_sde(num_steps=50, sampling_method='Euler')
         #fid
@@ -60,13 +57,12 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
                                             normalize=False,
                                             sync_on_compute=True
                                            ).to(self.device)
-
     def train(self, args):
 
         for epoch in range(self.start_epoch, self.num_epochs):
             self.model.train()
             epoch_loss = self.train_epoch(epoch)
-            self.run.log({"epoch": epoch, "train_loss_epoch": epoch_loss})
+            self.run.log({"epoch":epoch, "train_loss_epoch": epoch_loss})
             if epoch_loss < self.best_loss:
                 self.best_loss = epoch_loss
 
@@ -106,13 +102,11 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
             images = batch['image'].to(self.device)
             self.optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=True):
-                model_fn = self.model.forward
+                ## pure noise
                 model_kwargs = dict()
-                _z = self.ode_x2z(images, model_fn, **model_kwargs)[-1]
-                _x_sde_sampled = self.sde_z2x(_z, model_fn, **model_kwargs)[-1]
-                loss = mean_flat(((_x_sde_sampled-images) ** 2))
-                loss = loss.mean()
-                self.run.log({"training_loss_step": loss.item()})
+                loss_dict = self.transport.training_losses(self.model, images, model_kwargs)
+                loss = loss_dict['loss'].mean()
+                self.run.log({"training_loss_step":loss.item()})
                 
             self.scaler.scale(loss).backward()
             # torch.nn.utils.clip_grad_norm(self.model.parameters(), 1.0)
@@ -143,24 +137,29 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         epoch_loss = 0
         global_val_step = self.global_step
         val_steps = 0
+        fid_score = 0
+        fid_steps = 0
+        count_fid_sample = 0
+        if_fid = False
         for step, batch in progress_bar:
             images = batch["image"].to(self.device)
             self.optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=True):
-                model_fn = self.model.forward
+                ## pure noise
+                # x = torch.randn_like(images)
                 model_kwargs = dict()
-                _z = self.ode_x2z(images, model_fn, **model_kwargs)[-1]
-                _x_sde_sampled = self.sde_z2x(_z, model_fn, **model_kwargs)[-1]
-                loss = mean_flat(((_x_sde_sampled-images) ** 2))
-                loss = loss.mean()
+                loss_dict = self.transport.training_losses(self.model, images, model_kwargs)
+                loss = loss_dict['loss'].mean()
 
-                ## visualize reconstructed samples
-                noise = torch.randn(len(images), 3, self.image_size, self.image_size).to(self.device)
-                recons = self.sde_z2x(noise, model_fn **model_kwargs)[-1]
-                torch.clamp_(recons, 0., 1.)
-                self.fid.update(out2img(images), real=True)
-                self.fid.update(out2img(recons), real=False)
-
+                # sampling
+                samples = torch.rand(len(images), 3, self.image_size, self.image_size).to(self.device)
+                _z = self.ode_x2z(samples, self.model, **model_kwargs)[-1]
+                samples = self.sde_z2x(_z, self.model, **model_kwargs)[-1]
+                if self.global_step > 100000 and count_fid_sample<=10000:
+                    if_fid = True
+                    count_fid_sample += len(samples)
+                    self.fid.update(out2img(images), real=True)
+                    self.fid.update(out2img(samples), real=False)
             epoch_loss += loss.item()
             val_steps += images.shape[0]
             global_val_step += images.shape[0]
@@ -170,7 +169,9 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
                 }
             )
         self.run.log({"val_loss": epoch_loss / val_steps})
-        self.run.log({"fid_val": self.fid.compute().item()})
+        if if_fid:
+            self.run.log({"fid_val": self.fid.compute().item()})
+
 
         ## sample every n epochs:
         # get some samples
@@ -191,11 +192,11 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         #     recon = wandb.Image(img)
         #     examples.append(recon)
         # self.run.log({"reconstruction": examples})
-
+        
         examples = []
-        recons = recons[:num_samples]
-        for i in range(len(recons)):
-            img = np.transpose(recons[i,...].detach().cpu().numpy(), (1, 2, 0))
+        samples = samples[:num_samples]
+        for i in range(len(samples)):
+            img = np.transpose(samples[i,...].detach().cpu().numpy(), (1, 2, 0))
             recon = wandb.Image(img)
             examples.append(recon)
         self.run.log({"reconstruction": examples})
