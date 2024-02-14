@@ -19,7 +19,7 @@ from torchmetrics.image.fid import FrechetInceptionDistance
 def out2img(samples):
     return torch.clamp(255*samples, 0, 255).to(dtype=torch.uint8, device='cuda')
 
-class DDPMTrainer_SPFM(BaseTrainerFM):
+class DDPMTrainer_ODE_SDE(BaseTrainerFM):
     def __init__(self, args):
         super().__init__(args)
         ## data config
