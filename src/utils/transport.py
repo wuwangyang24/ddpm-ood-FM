@@ -135,7 +135,7 @@ class Transport:
         t, xt, ut = self.path_sampler.plan(t, x0, x1)
         model_output = model(xt, t, **model_kwargs)
         B, *_, C = xt.shape
-        assert model_output.size() == (B, *xt.size()[1:-1], C)
+        assert model_output.size() == (B, *xt.size()[1:-1], C), f"Model output shape {model_output.size()} does not match input shape {xt.size()}"
 
         terms = {}
         terms['pred'] = model_output
