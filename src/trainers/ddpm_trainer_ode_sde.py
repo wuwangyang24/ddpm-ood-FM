@@ -38,9 +38,6 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         self.step_size = args.model.step_size
         self.checkpoint_every = args.train.checkpoint_every
         self.eval_freq = args.train.eval_freq
-        wandb.login(key=args.wandb.key)
-        self.run = wandb.init(entity=args.wandb.entity, project=args.wandb.project)
-        # wandb.watch(self.model, log='all', log_freq=10)
         
         # create transport type
         self.transport = create_transport(
@@ -60,33 +57,42 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
                                             sync_on_compute=True
                                            ).to(self.device)
     def train(self, args):
-
         for epoch in range(self.start_epoch, self.num_epochs):
             self.model.train()
             epoch_loss = self.train_epoch(epoch)
-            self.run.log({"epoch":epoch, "train_loss_epoch": epoch_loss})
             if epoch_loss < self.best_loss:
                 self.best_loss = epoch_loss
-
-                self.save_checkpoint(
-                    self.run_dir / "checkpoint.pth",
-                    epoch,
-                    save_message=f"Saving checkpoint for model with loss {self.best_loss}",
-                )
-
-            if self.checkpoint_every != 0 and (epoch + 1) % self.checkpoint_every == 0:
-                self.save_checkpoint(
-                    self.run_dir / f"checkpoint_{epoch+1}.pth",
-                    epoch,
-                    save_message=f"Saving checkpoint at epoch {epoch+1}",
-                )
-
+                if self.accelerator.is_main_process:
+                    checkpoint = {
+                        "model_state_dict": self.model.state_dict(),
+                        "opt": self.optimizer.state_dict(),
+                        "args": args,
+                        "epoch": epoch,
+                        "best_loss": self.best_loss,
+                        "global_step": self.global_step
+                    }
+                    torch.save(checkpoint, f"{self.save_dir}/checkpoint.ckpt")
+                    print("checkpoint is saved")
+                self.accelerator.wait_for_everyone()
+            if epoch % 100 == 0 and epoch > 0:
+                if self.accelerator.is_main_process:
+                    checkpoint = {
+                        "model_state_dict": self.model.state_dict(),
+                        "opt": self.optimizer.state_dict(),
+                        "args": args,
+                        "epoch": epoch,
+                        "best_loss": self.best_loss,
+                        "global_step": self.global_step
+                    }
+                    torch.save(checkpoint, f"{self.save_dir}/checkpoint_{epoch}.pt")
+                    print("checkpoint is saved at epoch {epoch}")
+                self.accelerator.wait_for_everyone()
+                # self.accelerator.save_state(self.save_dir)
             if (epoch + 1) % self.eval_freq  == 0:
                 self.model.eval()
                 self.val_epoch(epoch)
         print("Training completed.")
-        if self.ddp:
-            dist.destroy_process_group()
+        self.accelerator.end_training()
 
     def train_epoch(self, epoch):
         progress_bar = tqdm(
@@ -108,14 +114,10 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
             model_kwargs = dict()
             loss_dict = self.transport.training_losses(self.model, images, model_kwargs)
             loss = loss_dict['loss'].mean()
-            self.run.log({"training_loss_step": loss.item()})
-                
-            # self.scaler.scale(loss).backward()
+            self.accelerator.log({"training_loss_step": loss.item()})
+
             self.accelerator.backward(loss)
-            # torch.nn.utils.clip_grad_norm(self.model.parameters(), 1.0)
-            # self.scaler.step(self.optimizer)
             self.optimizer.step()
-            # self.scaler.update()
             epoch_loss += loss.item()
             self.global_step += images.shape[0]
             epoch_step += images.shape[0]
@@ -146,23 +148,21 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         for step, batch in progress_bar:
             images = batch["image"].to(self.device)
             self.optimizer.zero_grad(set_to_none=True)
-            with autocast(enabled=True):
-                ## pure noise
-                # x = torch.randn_like(images)
-                model_kwargs = dict()
-                loss_dict = self.transport.training_losses(self.model, images, model_kwargs)
-                loss = loss_dict['loss'].mean()
+            ## pure noise
+            # x = torch.randn_like(images)
+            model_kwargs = dict()
+            loss_dict = self.transport.training_losses(self.model, images, model_kwargs)
+            loss = loss_dict['loss'].mean()
 
-                # sampling
-                samples = torch.rand(len(images), 3, self.image_size, self.image_size).to(self.device)
-                _z = self.ode_x2z(samples, self.model, **model_kwargs)[-1]
-                samples = self.sde_z2x(_z, self.model, **model_kwargs)[-1]
-                # 100000, 10000
-                if self.global_step > 1 and count_fid_sample<=1000:
-                    if_fid = True
-                    count_fid_sample += len(samples)
-                    self.fid.update(out2img(images), real=True)
-                    self.fid.update(out2img(samples), real=False)
+            # sampling
+            _z = self.ode_x2z(images, self.model, **model_kwargs)[-1]
+            _z = torch.nn.functional.normalize(_z)
+            samples = self.sde_z2x(_z, self.model, **model_kwargs)[-1]
+            if self.global_step > 100000 and count_fid_sample<=10000:
+                if_fid = True
+                count_fid_sample += len(samples)
+                self.fid.update(out2img(images), real=True)
+                self.fid.update(out2img(samples), real=False)
             epoch_loss += loss.item()
             val_steps += images.shape[0]
             global_val_step += images.shape[0]
@@ -171,30 +171,19 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
                     "loss": epoch_loss / val_steps,
                 }
             )
-        self.run.log({"val_loss": epoch_loss / val_steps})
+        self.accelerator.log({"val_loss": epoch_loss / val_steps})
         if if_fid:
-            self.run.log({"fid_val": self.fid.compute().item()})
-
-
+            self.accelerator.log({"fid_val": self.fid.compute().item()})
         ## sample every n epochs:
         # get some samples
         image_size = images.shape[2]
         if self.spatial_dimension == 2:
             if image_size >= 128:
-                num_samples = 4
-            else:
                 num_samples = 8
+            else:
+                num_samples = 16
         elif self.spatial_dimension == 3:
             num_samples = 2
-        # noise = torch.randn((num_samples, *tuple(images.shape[1:]))).to(self.device)
-        # recons = self.decode(z=noise, y=None)
-        # recons.clamp_(0, 1)
-        # examples = []
-        # for i in range(num_samples):
-        #     img = np.transpose(recons[i,...].cpu().numpy(), (1, 2, 0))
-        #     recon = wandb.Image(img)
-        #     examples.append(recon)
-        # self.run.log({"reconstruction": examples})
         
         examples = []
         samples = samples[:num_samples]
@@ -202,7 +191,7 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
             img = np.transpose(samples[i,...].detach().cpu().numpy(), (1, 2, 0))
             recon = wandb.Image(img)
             examples.append(recon)
-        self.run.log({"reconstruction": examples})
+        self.accelerator.log({"reconstruction": examples})
 
 
     def decode(self, z: torch.Tensor, y: torch.Tensor, **kwargs) -> torch.Tensor: 
