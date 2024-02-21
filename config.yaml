@@ -12,7 +12,7 @@ model:
     step_size: 0.01
 
 train:
-    batch_size: 64
+    batch_size: 128
     n_epochs: 3001
     eval_freq: 40
     checkpoint_every: 100
