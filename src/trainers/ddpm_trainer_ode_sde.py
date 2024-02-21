@@ -3,11 +3,11 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from torch.cuda.amp import autocast
 from tqdm import tqdm
 import wandb
 
 from src.data.get_train_and_val_dataloader import get_training_data_loader
+from src.data.get_train_and_val_dataloader_celebA import get_training_data_loader_celebA
 from torchdiffeq import odeint_adjoint as odeint
 
 from .base_FM import BaseTrainerFM
@@ -22,17 +22,21 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
     def __init__(self, args):
         super().__init__(args)
         ## data config
-        self.image_size = args.data.image_size
         self.num_epochs = args.train.n_epochs
         self.sigma_min = args.model.sigma_min
-        self.train_loader, self.val_loader = get_training_data_loader(
-            batch_size=args.train.batch_size,
-            training_ids=args.data.training_ids,
-            validation_ids=args.data.validation_ids,
-            is_grayscale=bool(args.data.is_grayscale),
-            spatial_dimension=args.data.spatial_dimension,
-            image_size=self.image_size,
-        )
+        if args.data.celebA:
+            self.train_loader, self.val_loader = get_training_data_loader_celebA(
+                batch_size=args.train.batch_size,
+                root_dir=args.data.datadir_celebA
+            )
+        else:
+            self.train_loader, self.val_loader = get_training_data_loader(
+                batch_size=args.train.batch_size,
+                training_ids=args.data.training_ids,
+                validation_ids=args.data.validation_ids,
+                is_grayscale=bool(args.data.is_grayscale),
+                spatial_dimension=args.data.spatial_dimension
+            )
         # use accelerater for ddp
         self.model, self.optimizer, self.train_loader, self.val_loader = self.accelerator.prepare(self.model, self.optimizer, self.train_loader, self.val_loader)
         self.step_size = args.model.step_size
@@ -60,21 +64,7 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         for epoch in range(self.start_epoch, self.num_epochs):
             self.model.train()
             epoch_loss = self.train_epoch(epoch)
-            if epoch_loss < self.best_loss:
-                self.best_loss = epoch_loss
-                if self.accelerator.is_main_process:
-                    checkpoint = {
-                        "model_state_dict": self.model.state_dict(),
-                        "opt": self.optimizer.state_dict(),
-                        "args": args,
-                        "epoch": epoch,
-                        "best_loss": self.best_loss,
-                        "global_step": self.global_step
-                    }
-                    torch.save(checkpoint, f"{self.save_dir}/checkpoint.ckpt")
-                    print("checkpoint is saved")
-                self.accelerator.wait_for_everyone()
-            if epoch % 100 == 0 and epoch > 0:
+            if epoch % 100 == 0:
                 if self.accelerator.is_main_process:
                     checkpoint = {
                         "model_state_dict": self.model.state_dict(),
@@ -87,7 +77,6 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
                     torch.save(checkpoint, f"{self.save_dir}/checkpoint_{epoch}.pt")
                     print("checkpoint is saved at epoch {epoch}")
                 self.accelerator.wait_for_everyone()
-                # self.accelerator.save_state(self.save_dir)
             if (epoch + 1) % self.eval_freq  == 0:
                 self.model.eval()
                 self.val_epoch(epoch)
@@ -109,12 +98,9 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
         for step, batch in progress_bar:
             images = batch['image'].to(self.device)
             self.optimizer.zero_grad(set_to_none=True)
-            # with autocast(enabled=True):
-                ## pure noise
             model_kwargs = dict()
             loss_dict = self.transport.training_losses(self.model, images, model_kwargs)
             loss = loss_dict['loss'].mean()
-            self.accelerator.log({"training_loss_step": loss.item()})
 
             self.accelerator.backward(loss)
             self.optimizer.step()
@@ -126,7 +112,16 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
                     "loss": epoch_loss / epoch_step,
                 }
             )
-            
+            dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+            avg_loss = loss.item() / 4
+            if self.accelerator.is_main_process:
+                self.accelerator.log({"training_loss_step": avg_loss})
+                # compute FID
+                if epoch % 50 == 0 and epoch >0:
+                self.fid.update(out2img(images), real=True)
+                self.fid.update(out2img(self.sample(images.shape[0])), real=False)
+        if self.accelerator.is_main_process:
+            self.accelerator.log({"FID": self.fid.compute().item()})
         epoch_loss = epoch_loss / epoch_step
         return epoch_loss
 
@@ -156,13 +151,8 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
 
             # sampling
             _z = self.ode_x2z(images, self.model, **model_kwargs)[-1]
-            _z = torch.nn.functional.normalize(_z)
             samples = self.sde_z2x(_z, self.model, **model_kwargs)[-1]
-            if self.global_step > 100000 and count_fid_sample<=10000:
-                if_fid = True
-                count_fid_sample += len(samples)
-                self.fid.update(out2img(images), real=True)
-                self.fid.update(out2img(samples), real=False)
+
             epoch_loss += loss.item()
             val_steps += images.shape[0]
             global_val_step += images.shape[0]
@@ -171,9 +161,12 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
                     "loss": epoch_loss / val_steps,
                 }
             )
-        self.accelerator.log({"val_loss": epoch_loss / val_steps})
-        if if_fid:
-            self.accelerator.log({"fid_val": self.fid.compute().item()})
+            
+        # dist.all_reduce(epoch_loss, op=dist.ReduceOp.SUM)
+        avg_loss = epoch_loss / 4
+        if self.accelerator.is_main_process:
+            self.accelerator.log({"val_loss_step": avg_loss})
+        
         ## sample every n epochs:
         # get some samples
         image_size = images.shape[2]
@@ -218,7 +211,7 @@ class DDPMTrainer_ODE_SDE(BaseTrainerFM):
     def sample(self, num_samples):
         sampler = Sampler(self.transport)
         sample_fn = sampler.sample_ode()
-        z = torch.randn(num_samples, 3, self.image_size, self.image_size).to(self.device)
+        z = torch.randn(num_samples, 3, 32, self.image_size).to(self.device)
         model_kwargs = dict()
         samples = sample_fn(z, self.model, **model_kwargs)[-1]
         return samples
