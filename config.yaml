@@ -1,32 +1,33 @@
 data:
-  image_size: 32
-  training_ids: 'data/data_splits/CIFAR10_train.csv'
-  validation_ids: 'data/data_splits/CIFAR10_val.csv'
-  spatial_dimension: 2
-  is_grayscale: 0
+    image_size: 
+    training_ids: 'data/data_splits/CIFAR10_train.csv'
+    validation_ids: 'data/data_splits/CIFAR10_val.csv'
+    spatial_dimension: 2
+    is_grayscale: 0
+    celebA: True
+    datadir_celebA: 'data/img_align_celeba/img_align_celeba'
 
 model:
-  sigma_min: 0.0001
-  step_size: 0.01
+    sigma_min: 0.0001
+    step_size: 0.01
 
 train:
-  batch_size: 128
-  n_epochs: 300
-  eval_freq: 10
-  checkpoint_every: 20
-  lr: 2.5e-4
-  
-  path_type: 'linear' #'GVP','VP'
-  prediction: 'velocity' #'score','noise'
-  loss_weight: None #'velcity','likelihood'
-  train_eps:
-  sample_eps:
+    batch_size: 64
+    n_epochs: 3001
+    eval_freq: 40
+    checkpoint_every: 100
+    lr: 1e-4
+    path_type: "Linear"  #'GVP','VP'
+    prediction: "velocity" #'score','noise'
+    loss_weight:
+    train_eps: 
+    sample_eps:
 
 wandb:
-  key: #TO DO
-  entity: #TO DO
-  project: #TO DO
+    key: e8af882d14d8408f2bbb2c220c22c9499151647f
+    entity: fm_val
+    project: FM_train
 
-model_name: SPFM
+model_name: SPFM #FM
 model_type: big
 output_dir: model
